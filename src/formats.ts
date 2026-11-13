@@ -80,6 +80,7 @@ export function checkMd(r: CheckReport, limit = 50): string {
     `| ${s.serials} | ${s.links} | ${s.linkRows} | ${s.topLevel} | ${s.components} | ${s.maxLevels} |`,
   ];
   if (s.timeOrder) out.push('', 'Time order: rows replayed by timestamp.');
+  if (s.lotRows) out.push('', `Lots: ${s.lotRows} rows with a lot${s.lotOnlyRows ? `, ${s.lotOnlyRows} of them without a child serial (only used to trace by lot, not checked)` : ''}.`);
   if (s.removeRows) out.push('', `Rework: ${s.removeRows} remove rows took out ${s.removedLinks} links (not counted above).`);
   if (s.unitsGiven) out.push('', `Units file: ${s.unitsGiven} serials${s.bomLines ? `; BOM: ${s.bomLines} lines, ${s.bomChecked} assemblies checked` : ''}.`);
   if (!r.findings.length) {
@@ -108,6 +109,10 @@ export function traceMd(r: TraceReport, partOf: (serial: string) => string | und
       `| ${mdCell(t.serial)} | ${mdCell(t.part ?? '')} | ${t.found ? 'yes' : 'no'} | ${mdCell(t.topLevel.join(', '))} | ${t.paths.length}${t.pathsTruncated ? '+' : ''} | ${mdCell(t.removedFrom.map((r) => r.parent).join(', '))} |`,
     );
   }
+  if (r.lots.length) {
+    out.push('', '## Lots', '', '| lot | serials | lot-only rows in |', '| --- | --- | --- |');
+    for (const l of r.lots) out.push(`| ${mdCell(l.lot)} | ${mdCell(l.serials.join(', '))} | ${mdCell(l.usedIn.join(', '))} |`);
+  }
   const a = affected(r);
   out.push('', `## Affected top-level units (${a.length})`, '');
   if (a.length) {
@@ -115,5 +120,6 @@ export function traceMd(r: TraceReport, partOf: (serial: string) => string | und
     for (const x of a) out.push(`| ${mdCell(x.unit)} | ${mdCell(partOf(x.unit) ?? '')} | ${mdCell(x.via.join(', '))} |`);
   } else out.push('(none)');
   if (r.notFound.length) out.push('', `Not found (${r.notFound.length}): ${mdCell(r.notFound.join(', '))}`);
+  if (r.lotsNotFound.length) out.push('', `Lots not found (${r.lotsNotFound.length}): ${mdCell(r.lotsNotFound.join(', '))}`);
   return out.join('\n') + '\n';
 }

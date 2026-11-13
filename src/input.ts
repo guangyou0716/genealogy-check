@@ -12,6 +12,13 @@ export interface Link {
   action?: 'remove';
   /** `timestamp` as milliseconds, set by `timeOrder` (zone-less stamps are compared as they are, like UTC). */
   time?: number;
+  /** Component lot / reel / batch from the optional lot column. */
+  lot?: string;
+  /**
+   * True for a row with a lot but no child serial (a lot-tracked, unserialized component). `child` is then empty;
+   * such rows stay out of the serial genealogy and its checks, and are used only to trace by lot.
+   */
+  lotOnly?: true;
 }
 
 /** A link that a later remove row took out again (rework / component replacement). */
@@ -53,6 +60,7 @@ export interface LinkColumns {
   timeColumn?: string;
   stationColumn?: string;
   actionColumn?: string;
+  lotColumn?: string;
 }
 
 const ADD_WORDS = new Set(['', 'add']);
@@ -92,14 +100,18 @@ export function parseLinks(text: string, columns: LinkColumns = {}): Link[] {
   const ts = t.index(columns.timeColumn ?? 'timestamp', columns.timeColumn !== undefined, 'timestamp');
   const st = t.index(columns.stationColumn ?? 'station', columns.stationColumn !== undefined, 'station');
   const ac = t.index(columns.actionColumn ?? 'action', columns.actionColumn !== undefined, 'add / remove');
+  const lc = t.index(columns.lotColumn ?? 'lot', columns.lotColumn !== undefined, 'component lot');
   const links: Link[] = [];
   for (const { cells, row } of t.rows) {
     const parent = cell(cells, p);
     const child = cell(cells, c);
-    if (!parent || !child) {
-      throw new InputError(`links row ${row}: ${!parent ? 'parent' : 'child'} serial is empty.`);
+    const lot = cell(cells, lc);
+    if (!parent || (!child && !lot)) {
+      throw new InputError(`links row ${row}: ${!parent ? 'parent' : 'child'} serial is empty${parent && lc >= 0 ? ' and so is the lot' : ''}.`);
     }
     const link: Link = { parent, child, row };
+    if (lot) link.lot = lot;
+    if (!child) link.lotOnly = true;
     const timestamp = cell(cells, ts);
     const station = cell(cells, st);
     if (timestamp) link.timestamp = timestamp;
@@ -108,6 +120,9 @@ export function parseLinks(text: string, columns: LinkColumns = {}): Link[] {
     if (REMOVE_WORDS.has(action)) link.action = 'remove';
     else if (!ADD_WORDS.has(action)) {
       throw new InputError(`links row ${row}: action "${cell(cells, ac)}" is not add or remove (empty means add).`);
+    }
+    if (link.lotOnly && link.action === 'remove') {
+      throw new InputError(`links row ${row}: a remove row needs a child serial (lot-only rows cannot be removed).`);
     }
     links.push(link);
   }

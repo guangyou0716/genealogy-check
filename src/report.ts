@@ -60,6 +60,7 @@ export function textReport(r: CheckReport, limit = 50): string {
     `  serials ${s.serials}, links ${s.links} (${s.linkRows} rows), top-level units ${s.topLevel}, components ${s.components}, deepest chain ${s.maxLevels} levels`,
   ];
   if (s.timeOrder) out.push('  time order: rows replayed by timestamp');
+  if (s.lotRows) out.push(`  lots: ${s.lotRows} rows with a lot${s.lotOnlyRows ? `, ${s.lotOnlyRows} of them without a child serial (only used to trace by lot, not checked)` : ''}`);
   if (s.removeRows) out.push(`  rework: ${s.removeRows} remove rows took out ${s.removedLinks} links (not counted above)`);
   if (s.unitsGiven) out.push(`  units file: ${s.unitsGiven} serials${s.bomLines ? `; BOM: ${s.bomLines} lines, ${s.bomChecked} assemblies checked` : ''}`);
   if (!r.findings.length) {
@@ -107,8 +108,19 @@ export function traceText(r: TraceReport): string {
     else out.push('    (no components)');
     out.push('');
   }
+  if (r.lots.length) {
+    out.push('Lots:');
+    for (const l of r.lots) {
+      const parts = [];
+      if (l.serials.length) parts.push(`serials ${l.serials.join(', ')}`);
+      if (l.usedIn.length) parts.push(`lot-only rows in ${l.usedIn.join(', ')}`);
+      out.push(`  ${l.lot}: ${parts.length ? parts.join('; ') : 'not found'}`);
+    }
+    out.push('');
+  }
   out.push(`Affected top-level units (${r.affectedTopLevel.length}): ${list(r.affectedTopLevel)}`);
   if (r.notFound.length) out.push(`Not found (${r.notFound.length}): ${r.notFound.join(', ')}`);
+  if (r.lotsNotFound.length) out.push(`Lots not found (${r.lotsNotFound.length}): ${r.lotsNotFound.join(', ')}`);
   return out.join('\n') + '\n';
 }
 

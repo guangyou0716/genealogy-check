@@ -1,0 +1,4 @@
+# bad capacitor lot and a cracked case lot
+CAP-LOT-0922
+
+CASE-LOT-77
