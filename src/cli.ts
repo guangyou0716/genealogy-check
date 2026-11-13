@@ -17,15 +17,17 @@ they contain). Offline; reads local files only.
 
 links.csv: header "parent,child" (optional timestamp, station columns are kept for later use). One row per
 component built into an assembly; multi-level genealogies are just more rows (a sub-assembly is a child in one row
-and a parent in others).
+and a parent in others). Rework: an optional "action" column, add (or empty) / remove. Rows are replayed in file
+order; a remove row takes out the latest add of the same parent,child, so remove old + add new = a replacement.
 units.csv: header "serial,part" - part number of each serial (optional, enables the BOM check and part labels).
 bom.csv:   header "parent_part,child_part,qty" - components per assembly part number.
 
 check findings (exit 1): a serial built into more than one assembly (double consumption), cycles, a serial linked
 into itself, assemblies with fewer / more components of a part than the BOM, components whose part is not in the
-assembly's BOM, serials not in the units file, the same link recorded twice.
+assembly's BOM, serials not in the units file, remove rows with nothing to remove, the same link recorded twice.
 trace: for each serial, every route up to a top-level unit and the tree of what it contains, plus the set of
-affected top-level units (e.g. for a recall from a bad component lot). Exit 1 when a serial is not found.
+affected top-level units (e.g. for a recall from a bad component lot), and assemblies a serial was removed from by
+rework (those are not affected units). Exit 1 when a serial is not found.
 
 Options:
   --units <file>            units CSV (serial,part)
@@ -35,6 +37,7 @@ Options:
   --limit <n>               findings listed per kind in the text report (default 50)    [check]
   --parent-column <name>    links parent column (default parent)
   --child-column <name>     links child column (default child)
+  --action-column <name>    links rework column, add / remove (default action, optional)
   --serial-column <name>    units serial column (default serial)
   --part-column <name>      units part column (default part)
   --json                    JSON report (everything)
@@ -76,6 +79,7 @@ export function main(argv: string[]): number {
         limit: { type: 'string' },
         'parent-column': { type: 'string' },
         'child-column': { type: 'string' },
+        'action-column': { type: 'string' },
         'serial-column': { type: 'string' },
         'part-column': { type: 'string' },
         json: { type: 'boolean' },
@@ -97,6 +101,7 @@ export function main(argv: string[]): number {
     const links = parseLinks(read(linksFile, 'links'), {
       parentColumn: values['parent-column'],
       childColumn: values['child-column'],
+      actionColumn: values['action-column'],
     });
     if ((values['serial-column'] !== undefined || values['part-column'] !== undefined) && values.units === undefined) {
       throw new InputError('--serial-column / --part-column need --units.');

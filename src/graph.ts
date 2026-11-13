@@ -1,4 +1,5 @@
-import type { BomLine, Link, Unit } from './input.js';
+import { applyRework } from './input.js';
+import type { BomLine, Link, RemovedLink, Unit } from './input.js';
 
 /** Assembly genealogy: unique parent -> child edges (self-links and repeated rows are kept out, but reported). */
 export interface Genealogy {
@@ -60,6 +61,7 @@ export type Finding =
   | { type: 'multi-parent'; child: string; parents: string[]; rows: number[] }
   | { type: 'cycle'; serials: string[] }
   | { type: 'unknown-serial'; serial: string }
+  | { type: 'remove-without-link'; parent: string; child: string; row: number }
   | {
       type: 'bom-missing' | 'bom-extra';
       parent: string;
@@ -82,6 +84,9 @@ export interface CheckReport {
     unitsGiven: number;
     bomLines: number;
     bomChecked: number;
+    /** Rework rows (action = remove) and the links they took out. */
+    removeRows: number;
+    removedLinks: number;
   };
   findings: Finding[];
   counts: Record<string, number>;
@@ -160,9 +165,12 @@ function maxLevels(g: Genealogy): number {
   return best;
 }
 
-export function check(links: Link[], units?: Unit[], bom?: BomLine[]): CheckReport {
+export function check(input: Link[], units?: Unit[], bom?: BomLine[]): CheckReport {
+  const rework = applyRework(input);
+  const links = rework.links;
   const g = buildGenealogy(links, units);
   const findings: Finding[] = [];
+  for (const r of rework.orphanRemoves) findings.push({ type: 'remove-without-link', parent: r.parent, child: r.child, row: r.row });
   for (const [serial, rows] of g.selfLinks) findings.push({ type: 'self-link', serial, rows });
   for (const [k, rows] of g.edgeRows) {
     if (rows.length > 1) {
@@ -178,7 +186,10 @@ export function check(links: Link[], units?: Unit[], bom?: BomLine[]): CheckRepo
   }
   for (const serials of cycles(g)) findings.push({ type: 'cycle', serials });
   if (units) {
-    for (const s of g.serials) if (!g.part.has(s)) findings.push({ type: 'unknown-serial', serial: s });
+    const all = new Set(g.serials);
+    for (const r of rework.removed) all.add(r.parent).add(r.child);
+    for (const r of rework.orphanRemoves) all.add(r.parent).add(r.child);
+    for (const s of all) if (!g.part.has(s)) findings.push({ type: 'unknown-serial', serial: s });
   }
   let bomChecked = 0;
   if (units && bom) {
@@ -221,13 +232,15 @@ export function check(links: Link[], units?: Unit[], bom?: BomLine[]): CheckRepo
     summary: {
       serials: g.serials.length,
       links: g.edgeRows.size,
-      linkRows: links.length,
+      linkRows: input.length,
       topLevel,
       components: g.serials.length - topLevel,
       maxLevels: maxLevels(g),
       unitsGiven: units?.length ?? 0,
       bomLines: bom?.length ?? 0,
       bomChecked,
+      removeRows: rework.removeRows,
+      removedLinks: rework.removed.length,
     },
     findings,
     counts,
@@ -251,6 +264,8 @@ export interface TraceResult {
   pathsTruncated: boolean;
   topLevel: string[];
   tree: TreeNode;
+  /** Assemblies this serial was built into and later taken out of again (rework rows), in file order. */
+  removedFrom: RemovedLink[];
 }
 
 export interface TraceReport {
@@ -333,16 +348,26 @@ function downTree(g: Genealogy, serial: string, maxDepth: number): TreeNode {
   return root;
 }
 
-export function trace(links: Link[], serials: string[], units?: Unit[], maxDepth = 50): TraceReport {
-  const g = buildGenealogy(links, units);
-  const known = new Set(g.serials);
+export function trace(input: Link[], serials: string[], units?: Unit[], maxDepth = 50): TraceReport {
+  const rework = applyRework(input);
+  const g = buildGenealogy(rework.links, units);
+  const active = new Set(g.serials);
+  // A serial that only shows up in removed links (e.g. a replaced, scrapped part) is found, but sits in no unit now.
+  const known = new Set(active);
+  const removedFrom = new Map<string, RemovedLink[]>();
+  for (const r of rework.removed) {
+    known.add(r.parent).add(r.child);
+    const list = removedFrom.get(r.child);
+    if (list) list.push(r);
+    else removedFrom.set(r.child, [r]);
+  }
   const traces: TraceResult[] = [];
   const affected = new Set<string>();
   const notFound: string[] = [];
   for (const serial of serials) {
     const found = known.has(serial);
     if (!found) notFound.push(serial);
-    const up = found ? upPaths(g, serial) : { paths: [], truncated: false, top: [] };
+    const up = active.has(serial) ? upPaths(g, serial) : { paths: [], truncated: false, top: [] };
     up.top.forEach((t) => affected.add(t));
     const result: TraceResult = {
       serial,
@@ -351,6 +376,7 @@ export function trace(links: Link[], serials: string[], units?: Unit[], maxDepth
       pathsTruncated: up.truncated,
       topLevel: up.top,
       tree: downTree(g, serial, maxDepth),
+      removedFrom: removedFrom.get(serial) ?? [],
     };
     const part = g.part.get(serial);
     if (part !== undefined) result.part = part;

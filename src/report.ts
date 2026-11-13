@@ -15,6 +15,8 @@ export function describe(f: Finding): string {
       return `cycle: ${f.serials.join(', ')} contain each other`;
     case 'unknown-serial':
       return `${f.serial} is not in the units file`;
+    case 'remove-without-link':
+      return `row ${f.row} removes ${f.child} from ${f.parent}, but no earlier row built it in (or it was already removed)`;
     case 'bom-missing':
     case 'bom-extra':
       return `${f.parent} (${f.parentPart}) has ${f.actual} x ${f.childPart}, BOM says ${f.expected}${f.children.length ? `: ${f.children.join(', ')}` : ''}`;
@@ -31,6 +33,7 @@ export const ORDER: Finding['type'][] = [
   'bom-extra',
   'bom-unexpected',
   'unknown-serial',
+  'remove-without-link',
   'duplicate-link',
 ];
 
@@ -42,6 +45,7 @@ export const TITLE: Record<Finding['type'], string> = {
   'bom-extra': 'More components than the BOM',
   'bom-unexpected': 'Components not in the BOM',
   'unknown-serial': 'Serials not in the units file',
+  'remove-without-link': 'Remove rows with nothing to remove',
   'duplicate-link': 'Same link recorded more than once',
 };
 
@@ -51,6 +55,7 @@ export function textReport(r: CheckReport, limit = 50): string {
     'Genealogy check',
     `  serials ${s.serials}, links ${s.links} (${s.linkRows} rows), top-level units ${s.topLevel}, components ${s.components}, deepest chain ${s.maxLevels} levels`,
   ];
+  if (s.removeRows) out.push(`  rework: ${s.removeRows} remove rows took out ${s.removedLinks} links (not counted above)`);
   if (s.unitsGiven) out.push(`  units file: ${s.unitsGiven} serials${s.bomLines ? `; BOM: ${s.bomLines} lines, ${s.bomChecked} assemblies checked` : ''}`);
   if (!r.findings.length) {
     out.push('', 'No findings.');
@@ -81,6 +86,10 @@ export function traceText(r: TraceReport): string {
     if (!t.found) {
       out.push('  not found in the links file', '');
       continue;
+    }
+    if (t.removedFrom.length) {
+      out.push('  removed from (rework):');
+      for (const r of t.removedFrom) out.push(`    ${r.parent} (built in row ${r.addedRow}, removed row ${r.removedRow})`);
     }
     out.push(`  top-level: ${list(t.topLevel)}`);
     if (t.paths.length) {

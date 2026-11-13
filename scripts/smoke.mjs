@@ -28,6 +28,12 @@ for (const bin of [cli, link]) {
   const td = t.stdout ? JSON.parse(t.stdout) : {};
   if (t.status !== 0 || td.affectedTopLevel?.join() !== 'MTR-0002,MTR-0003') fail(`trace via ${bin}: ${t.status} ${t.stderr}`);
 }
+{
+  const r = run(cli, ['check', ex('rework-links.csv'), '--units', ex('rework-units.csv'), '--bom', ex('bom.csv'), '--json']);
+  const d = r.stdout ? JSON.parse(r.stdout) : {};
+  if (r.status !== 1 || d.findings?.length !== 1 || d.summary?.removedLinks !== 2) fail(`rework example: ${r.status} ${r.stderr}`);
+  console.log('smoke: ok rework example: 3 remove rows, 2 links taken out, 1 stray remove row');
+}
 console.log('smoke: ok example (direct and via symlink): check 4 findings exit 1; recall trace -> MTR-0002, MTR-0003');
 
 // 50,000 meters x (PCB with 3 parts, LCD, relay) = 300,000 link rows; 3 meters share one relay (double consumption).
