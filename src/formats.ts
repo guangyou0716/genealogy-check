@@ -28,6 +28,8 @@ function findingCells(f: Finding): (string | number | undefined)[] {
       return [f.type, undefined, undefined, undefined, undefined, undefined, f.serials.length, f.serials.join(' '), undefined, d];
     case 'unknown-serial':
       return [f.type, f.serial, undefined, undefined, undefined, undefined, undefined, f.serial, undefined, d];
+    case 'remove-without-link':
+      return [f.type, f.child, f.parent, undefined, undefined, undefined, undefined, f.child, String(f.row), d];
     case 'bom-missing':
     case 'bom-extra':
       return [f.type, undefined, f.parent, f.parentPart, f.childPart, f.expected, f.actual, f.children.join(' '), undefined, d];
@@ -75,6 +77,7 @@ export function checkMd(r: CheckReport, limit = 50): string {
     '| ---: | ---: | ---: | ---: | ---: | ---: |',
     `| ${s.serials} | ${s.links} | ${s.linkRows} | ${s.topLevel} | ${s.components} | ${s.maxLevels} |`,
   ];
+  if (s.removeRows) out.push('', `Rework: ${s.removeRows} remove rows took out ${s.removedLinks} links (not counted above).`);
   if (s.unitsGiven) out.push('', `Units file: ${s.unitsGiven} serials${s.bomLines ? `; BOM: ${s.bomLines} lines, ${s.bomChecked} assemblies checked` : ''}.`);
   if (!r.findings.length) {
     out.push('', 'No findings.');
@@ -96,10 +99,10 @@ export function checkMd(r: CheckReport, limit = 50): string {
 }
 
 export function traceMd(r: TraceReport, partOf: (serial: string) => string | undefined): string {
-  const out = ['# Genealogy trace', '', '| serial | part | found | top-level units | routes up |', '| --- | --- | --- | --- | ---: |'];
+  const out = ['# Genealogy trace', '', '| serial | part | found | top-level units | routes up | removed from (rework) |', '| --- | --- | --- | --- | ---: | --- |'];
   for (const t of r.traces) {
     out.push(
-      `| ${mdCell(t.serial)} | ${mdCell(t.part ?? '')} | ${t.found ? 'yes' : 'no'} | ${mdCell(t.topLevel.join(', '))} | ${t.paths.length}${t.pathsTruncated ? '+' : ''} |`,
+      `| ${mdCell(t.serial)} | ${mdCell(t.part ?? '')} | ${t.found ? 'yes' : 'no'} | ${mdCell(t.topLevel.join(', '))} | ${t.paths.length}${t.pathsTruncated ? '+' : ''} | ${mdCell(t.removedFrom.map((r) => r.parent).join(', '))} |`,
     );
   }
   const a = affected(r);

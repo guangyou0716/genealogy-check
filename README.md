@@ -40,7 +40,21 @@ Every serial in the units file whose part has BOM lines is checked, also one tha
 (it then shows as missing all its components); parts with no BOM lines are not BOM-checked. Serials are matched
 exactly (case-sensitive).
 
-Column names are matched without case; `--parent-column`, `--child-column`, `--serial-column` and `--part-column`
+Rework (optional): an `action` column with `add` (or empty) / `remove`. Rows are replayed in file order; a remove
+row takes out the latest still-present add of the same parent and child, so "remove old part, add new part" leaves
+only the replacement, and a part moved from one assembly to another is not double consumption. A remove row with
+nothing to remove is a finding. Removed links are left out of every other check and count; `trace` lists the
+assemblies a serial was removed from (they are not affected units). Export the file in the order things happened
+(timestamps are not used for ordering yet). See `examples/rework-links.csv`.
+
+```csv
+parent,child,timestamp,station,action
+PCB-1002,MCU-4002,2026-11-09 14:12:00,SMT,add
+PCB-1002,MCU-4002,2026-11-11 09:40:00,REWORK,remove
+PCB-1002,MCU-4006,2026-11-11 09:45:00,REWORK,add
+```
+
+Column names are matched without case; `--parent-column`, `--child-column`, `--action-column`, `--serial-column` and `--part-column`
 rename them. Row numbers in messages count CSV records with the header as row 1 (blank lines are skipped).
 
 ## Examples
@@ -134,7 +148,7 @@ npm run smoke   # built CLI: examples + a 300,000-link genealogy
 
 ## Not in scope (yet)
 
-Rework / component replacement history (remove + re-add), time-order checks (a component linked before it was
+Ordering rework rows by timestamp, time-order checks (a component linked before it was
 built), vendor export presets. Real export samples are needed before adding presets.
 
 ## License

@@ -8,6 +8,28 @@ export interface Link {
   row: number;
   timestamp?: string;
   station?: string;
+  /** Set only for a rework row that takes `child` out of `parent` again (action column = remove). */
+  action?: 'remove';
+}
+
+/** A link that a later remove row took out again (rework / component replacement). */
+export interface RemovedLink {
+  parent: string;
+  child: string;
+  /** Row that built it in. */
+  addedRow: number;
+  /** Row that took it out. */
+  removedRow: number;
+}
+
+/** Result of replaying add / remove rows in file order. */
+export interface Rework {
+  /** Links still in place after every remove row (file order). */
+  links: Link[];
+  removed: RemovedLink[];
+  /** Remove rows with no earlier, still-present add row for the same parent and child. */
+  orphanRemoves: Link[];
+  removeRows: number;
 }
 
 export interface Unit {
@@ -28,7 +50,11 @@ export interface LinkColumns {
   childColumn?: string;
   timeColumn?: string;
   stationColumn?: string;
+  actionColumn?: string;
 }
+
+const ADD_WORDS = new Set(['', 'add']);
+const REMOVE_WORDS = new Set(['remove']);
 
 interface Table {
   header: string[];
@@ -63,6 +89,7 @@ export function parseLinks(text: string, columns: LinkColumns = {}): Link[] {
   const c = t.index(columns.childColumn ?? 'child', true, 'child serial');
   const ts = t.index(columns.timeColumn ?? 'timestamp', columns.timeColumn !== undefined, 'timestamp');
   const st = t.index(columns.stationColumn ?? 'station', columns.stationColumn !== undefined, 'station');
+  const ac = t.index(columns.actionColumn ?? 'action', columns.actionColumn !== undefined, 'add / remove');
   const links: Link[] = [];
   for (const { cells, row } of t.rows) {
     const parent = cell(cells, p);
@@ -75,12 +102,48 @@ export function parseLinks(text: string, columns: LinkColumns = {}): Link[] {
     const station = cell(cells, st);
     if (timestamp) link.timestamp = timestamp;
     if (station) link.station = station;
+    const action = cell(cells, ac).toLowerCase();
+    if (REMOVE_WORDS.has(action)) link.action = 'remove';
+    else if (!ADD_WORDS.has(action)) {
+      throw new InputError(`links row ${row}: action "${cell(cells, ac)}" is not add or remove (empty means add).`);
+    }
     links.push(link);
   }
   if (links.length === 0) {
     throw new InputError('links: no data rows.');
   }
   return links;
+}
+
+/**
+ * Replays rework history in file order: a remove row takes out the latest still-present add row with the same parent
+ * and child, so "remove old, add new" leaves only the replacement. Links without remove rows come back unchanged.
+ */
+export function applyRework(rows: Link[]): Rework {
+  const active = new Map<string, Link[]>();
+  const removedAdds = new Set<Link>();
+  const removed: RemovedLink[] = [];
+  const orphanRemoves: Link[] = [];
+  let removeRows = 0;
+  for (const l of rows) {
+    const k = `${l.parent}\u0000${l.child}`;
+    if (l.action !== 'remove') {
+      const list = active.get(k);
+      if (list) list.push(l);
+      else active.set(k, [l]);
+      continue;
+    }
+    removeRows++;
+    const add = active.get(k)?.pop();
+    if (!add) {
+      orphanRemoves.push(l);
+      continue;
+    }
+    removedAdds.add(add);
+    removed.push({ parent: l.parent, child: l.child, addedRow: add.row, removedRow: l.row });
+  }
+  const links = rows.filter((l) => l.action !== 'remove' && !removedAdds.has(l));
+  return { links, removed, orphanRemoves, removeRows };
 }
 
 export function parseUnits(text: string, columns: { serialColumn?: string; partColumn?: string } = {}): Unit[] {
