@@ -1,4 +1,4 @@
-import { applyRework } from './input.js';
+import { applyRework, timeOrder } from './input.js';
 import type { BomLine, Link, RemovedLink, Unit } from './input.js';
 
 /** Assembly genealogy: unique parent -> child edges (self-links and repeated rows are kept out, but reported). */
@@ -63,6 +63,17 @@ export type Finding =
   | { type: 'unknown-serial'; serial: string }
   | { type: 'remove-without-link'; parent: string; child: string; row: number }
   | {
+      /** `child` went into the sub-assembly `parent` after `parent` itself was built into `assembly` (--time-order). */
+      type: 'late-component';
+      parent: string;
+      child: string;
+      row: number;
+      timestamp: string;
+      assembly: string;
+      assemblyRow: number;
+      assemblyTimestamp: string;
+    }
+  | {
       type: 'bom-missing' | 'bom-extra';
       parent: string;
       parentPart: string;
@@ -87,6 +98,8 @@ export interface CheckReport {
     /** Rework rows (action = remove) and the links they took out. */
     removeRows: number;
     removedLinks: number;
+    /** True with --time-order: rows replayed by timestamp and late components checked. */
+    timeOrder: boolean;
   };
   findings: Finding[];
   counts: Record<string, number>;
@@ -165,8 +178,46 @@ function maxLevels(g: Genealogy): number {
   return best;
 }
 
-export function check(input: Link[], units?: Unit[], bom?: BomLine[]): CheckReport {
-  const rework = applyRework(input);
+export interface Options {
+  /** Replay rows by timestamp instead of file order, and report components built into a sub-assembly after it was used. */
+  timeOrder?: boolean;
+}
+
+/** Active links where a component went into a sub-assembly later than that sub-assembly went into its assembly. */
+function lateComponents(rows: Link[]): Finding[] {
+  // One link per parent,child: the first (earliest) row, since rows are in time order; repeats are duplicate-link.
+  const firsts = new Map<string, Link>();
+  for (const l of rows) if (l.parent !== l.child && !firsts.has(key(l.parent, l.child))) firsts.set(key(l.parent, l.child), l);
+  const links = [...firsts.values()];
+  const usedIn = new Map<string, Link[]>();
+  for (const l of links) {
+    const list = usedIn.get(l.child);
+    if (list) list.push(l);
+    else usedIn.set(l.child, [l]);
+  }
+  const out: Finding[] = [];
+  for (const l of links) {
+    for (const up of usedIn.get(l.parent) ?? []) {
+      if (up.parent === l.child) continue; // a 2-cycle; reported as a cycle
+      if (l.time! > up.time!) {
+        out.push({
+          type: 'late-component',
+          parent: l.parent,
+          child: l.child,
+          row: l.row,
+          timestamp: l.timestamp!,
+          assembly: up.parent,
+          assemblyRow: up.row,
+          assemblyTimestamp: up.timestamp!,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+export function check(input: Link[], units?: Unit[], bom?: BomLine[], options: Options = {}): CheckReport {
+  const rework = applyRework(options.timeOrder ? timeOrder(input) : input);
   const links = rework.links;
   const g = buildGenealogy(links, units);
   const findings: Finding[] = [];
@@ -185,6 +236,7 @@ export function check(input: Link[], units?: Unit[], bom?: BomLine[]): CheckRepo
     }
   }
   for (const serials of cycles(g)) findings.push({ type: 'cycle', serials });
+  if (options.timeOrder) findings.push(...lateComponents(links));
   if (units) {
     const all = new Set(g.serials);
     for (const r of rework.removed) all.add(r.parent).add(r.child);
@@ -241,6 +293,7 @@ export function check(input: Link[], units?: Unit[], bom?: BomLine[]): CheckRepo
       bomChecked,
       removeRows: rework.removeRows,
       removedLinks: rework.removed.length,
+      timeOrder: options.timeOrder === true,
     },
     findings,
     counts,
@@ -348,8 +401,8 @@ function downTree(g: Genealogy, serial: string, maxDepth: number): TreeNode {
   return root;
 }
 
-export function trace(input: Link[], serials: string[], units?: Unit[], maxDepth = 50): TraceReport {
-  const rework = applyRework(input);
+export function trace(input: Link[], serials: string[], units?: Unit[], maxDepth = 50, options: Options = {}): TraceReport {
+  const rework = applyRework(options.timeOrder ? timeOrder(input) : input);
   const g = buildGenealogy(rework.links, units);
   const active = new Set(g.serials);
   // A serial that only shows up in removed links (e.g. a replaced, scrapped part) is found, but sits in no unit now.

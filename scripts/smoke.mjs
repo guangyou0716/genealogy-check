@@ -63,3 +63,28 @@ const bt = run(cli, ['trace', join(dir, 'links.csv'), 'R100', '--json']);
 const btd = bt.stdout ? JSON.parse(bt.stdout) : {};
 if (bt.status !== 0 || btd.affectedTopLevel?.join() !== 'M100,M101,M202') fail(`large trace: ${bt.status} ${bt.stderr}`);
 console.log(`smoke: ok large (300,000 links, 350,000 units, BOM on 100,000 assemblies) check ${ms} ms, trace ${Date.now() - t0} ms`);
+
+// --time-order on the example and on 300,000 timestamped rows (shuffled file order); one MCU is linked late.
+{
+  const r = run(cli, ['check', ex('time-order-links.csv'), '--time-order', '--json']);
+  const d = r.stdout ? JSON.parse(r.stdout) : {};
+  if (r.status !== 1 || d.counts?.['late-component'] !== 1 || d.findings?.length !== 1) fail(`time-order example: ${r.status} ${r.stderr}`);
+}
+const stamp = (min) => new Date(Date.UTC(2026, 10, 1) + min * 60_000).toISOString().replace('T', ' ').slice(0, 19);
+const timed = [];
+for (let i = 0; i < 50_000; i++) {
+  const m = `M${i}`;
+  const p = `P${i}`;
+  const late = i === 777 ? 10_000_000 : 0;
+  timed.push(`${p},U${i},${stamp(i * 10 + late)}`, `${p},CA${i},${stamp(i * 10 + 1)}`, `${p},CB${i},${stamp(i * 10 + 2)}`);
+  timed.push(`${m},${p},${stamp(i * 10 + 5)}`, `${m},L${i},${stamp(i * 10 + 6)}`, `${m},R${i},${stamp(i * 10 + 7)}`);
+}
+timed.reverse();
+writeFileSync(join(dir, 'timed.csv'), 'parent,child,timestamp\n' + timed.join('\n') + '\n');
+t0 = Date.now();
+const tc = run(cli, ['check', join(dir, 'timed.csv'), '--time-order', '--json']);
+const tcd = tc.stdout ? JSON.parse(tc.stdout) : {};
+if (tc.status !== 1 || tcd.summary?.linkRows !== 300_000 || tcd.findings?.length !== 1 || tcd.findings[0].child !== 'U777') {
+  fail(`large time-order: status ${tc.status} ${JSON.stringify(tcd.counts)} ${tc.stderr}`);
+}
+console.log(`smoke: ok --time-order example (1 late component) and 300,000 reversed timestamped rows (1 late) in ${Date.now() - t0} ms`);
