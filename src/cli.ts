@@ -5,6 +5,7 @@ import { parseArgs } from 'node:util';
 import { InputError } from './errors.js';
 import { check, trace } from './graph.js';
 import { parseBom, parseLinks, parseUnits } from './input.js';
+import { checkCsv, checkMd, traceCsv, traceMd } from './formats.js';
 import { jsonReport, textReport, traceText } from './report.js';
 
 const USAGE = `Usage: genealogy-check check <links.csv> [--units <units.csv> [--bom <bom.csv>]] [options]
@@ -36,7 +37,11 @@ Options:
   --child-column <name>     links child column (default child)
   --serial-column <name>    units serial column (default serial)
   --part-column <name>      units part column (default part)
-  --json                    JSON report
+  --json                    JSON report (everything)
+  --md                      Markdown report (summary + tables, for a ticket or wiki page)
+  --csv                     CSV: check -> one row per finding (all, --limit ignored);
+                            trace -> one row per affected top-level unit with the traced serials inside it
+                            (a recall list). Cells starting with = + @ get a leading ' for spreadsheets.
   -h, --help                show this help
 
 Exit codes: 0 ok, 1 findings (check) or serial not found (trace), 2 input error.
@@ -74,6 +79,8 @@ export function main(argv: string[]): number {
         'serial-column': { type: 'string' },
         'part-column': { type: 'string' },
         json: { type: 'boolean' },
+        md: { type: 'boolean' },
+        csv: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },
     });
@@ -86,6 +93,7 @@ export function main(argv: string[]): number {
       throw new InputError(command === undefined ? 'missing command (check or trace); see --help.' : `unknown command "${command}" (check or trace); see --help.`);
     }
     if (linksFile === undefined) throw new InputError('missing the links CSV file.');
+    if ([values.json, values.md, values.csv].filter(Boolean).length > 1) throw new InputError('pick one of --json, --md, --csv.');
     const links = parseLinks(read(linksFile, 'links'), {
       parentColumn: values['parent-column'],
       childColumn: values['child-column'],
@@ -104,7 +112,10 @@ export function main(argv: string[]): number {
       if (values.bom !== undefined && units === undefined) throw new InputError('--bom needs --units (the part number of each serial).');
       const bom = values.bom === undefined ? undefined : parseBom(read(values.bom, 'bom'));
       const report = check(links, units, bom);
-      process.stdout.write(values.json ? jsonReport(report) : textReport(report, int(values.limit, '--limit', 50, 1_000_000)));
+      const limit = int(values.limit, '--limit', 50, 1_000_000);
+      process.stdout.write(
+        values.json ? jsonReport(report) : values.md ? checkMd(report, limit) : values.csv ? checkCsv(report) : textReport(report, limit),
+      );
       return report.findings.length ? 1 : 0;
     }
 
@@ -118,7 +129,11 @@ export function main(argv: string[]): number {
     }
     if (!serials.length) throw new InputError('trace needs at least one serial (arguments or --serials).');
     const report = trace(links, [...new Set(serials)], units, int(values['max-depth'], '--max-depth', 50, 1000));
-    process.stdout.write(values.json ? jsonReport(report) : traceText(report));
+    const parts = new Map((units ?? []).map((u) => [u.serial, u.part]));
+    const partOf = (serial: string) => parts.get(serial);
+    process.stdout.write(
+      values.json ? jsonReport(report) : values.md ? traceMd(report, partOf) : values.csv ? traceCsv(report, partOf) : traceText(report),
+    );
     return report.notFound.length ? 1 : 0;
   } catch (e) {
     if (e instanceof InputError || (e as { code?: string }).code?.startsWith('ERR_PARSE_ARGS')) {
