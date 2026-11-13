@@ -15,6 +15,8 @@ export function describe(f: Finding): string {
       return `cycle: ${f.serials.join(', ')} contain each other`;
     case 'unknown-serial':
       return `${f.serial} is not in the units file`;
+    case 'late-component':
+      return `${f.child} went into ${f.parent} at ${f.timestamp} (row ${f.row}), after ${f.parent} was built into ${f.assembly} at ${f.assemblyTimestamp} (row ${f.assemblyRow})`;
     case 'remove-without-link':
       return `row ${f.row} removes ${f.child} from ${f.parent}, but no earlier row built it in (or it was already removed)`;
     case 'bom-missing':
@@ -32,6 +34,7 @@ export const ORDER: Finding['type'][] = [
   'bom-missing',
   'bom-extra',
   'bom-unexpected',
+  'late-component',
   'unknown-serial',
   'remove-without-link',
   'duplicate-link',
@@ -44,6 +47,7 @@ export const TITLE: Record<Finding['type'], string> = {
   'bom-missing': 'Fewer components than the BOM',
   'bom-extra': 'More components than the BOM',
   'bom-unexpected': 'Components not in the BOM',
+  'late-component': 'Component added after its sub-assembly was used (time order)',
   'unknown-serial': 'Serials not in the units file',
   'remove-without-link': 'Remove rows with nothing to remove',
   'duplicate-link': 'Same link recorded more than once',
@@ -55,6 +59,7 @@ export function textReport(r: CheckReport, limit = 50): string {
     'Genealogy check',
     `  serials ${s.serials}, links ${s.links} (${s.linkRows} rows), top-level units ${s.topLevel}, components ${s.components}, deepest chain ${s.maxLevels} levels`,
   ];
+  if (s.timeOrder) out.push('  time order: rows replayed by timestamp');
   if (s.removeRows) out.push(`  rework: ${s.removeRows} remove rows took out ${s.removedLinks} links (not counted above)`);
   if (s.unitsGiven) out.push(`  units file: ${s.unitsGiven} serials${s.bomLines ? `; BOM: ${s.bomLines} lines, ${s.bomChecked} assemblies checked` : ''}`);
   if (!r.findings.length) {

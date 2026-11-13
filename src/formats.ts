@@ -28,6 +28,8 @@ function findingCells(f: Finding): (string | number | undefined)[] {
       return [f.type, undefined, undefined, undefined, undefined, undefined, f.serials.length, f.serials.join(' '), undefined, d];
     case 'unknown-serial':
       return [f.type, f.serial, undefined, undefined, undefined, undefined, undefined, f.serial, undefined, d];
+    case 'late-component':
+      return [f.type, f.child, f.parent, undefined, undefined, undefined, undefined, `${f.child} ${f.parent} ${f.assembly}`, `${f.row} ${f.assemblyRow}`, d];
     case 'remove-without-link':
       return [f.type, f.child, f.parent, undefined, undefined, undefined, undefined, f.child, String(f.row), d];
     case 'bom-missing':
@@ -77,6 +79,7 @@ export function checkMd(r: CheckReport, limit = 50): string {
     '| ---: | ---: | ---: | ---: | ---: | ---: |',
     `| ${s.serials} | ${s.links} | ${s.linkRows} | ${s.topLevel} | ${s.components} | ${s.maxLevels} |`,
   ];
+  if (s.timeOrder) out.push('', 'Time order: rows replayed by timestamp.');
   if (s.removeRows) out.push('', `Rework: ${s.removeRows} remove rows took out ${s.removedLinks} links (not counted above).`);
   if (s.unitsGiven) out.push('', `Units file: ${s.unitsGiven} serials${s.bomLines ? `; BOM: ${s.bomLines} lines, ${s.bomChecked} assemblies checked` : ''}.`);
   if (!r.findings.length) {

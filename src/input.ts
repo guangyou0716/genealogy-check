@@ -10,6 +10,8 @@ export interface Link {
   station?: string;
   /** Set only for a rework row that takes `child` out of `parent` again (action column = remove). */
   action?: 'remove';
+  /** `timestamp` as milliseconds, set by `timeOrder` (zone-less stamps are compared as they are, like UTC). */
+  time?: number;
 }
 
 /** A link that a later remove row took out again (rework / component replacement). */
@@ -198,4 +200,53 @@ export function parseBom(text: string): BomLine[] {
     lines.push({ parentPart, childPart, qty: Number(qtyText), row });
   }
   return lines;
+}
+
+const STAMP = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?(?: ?(Z|[+-]\d{2}:?\d{2}))?$/i;
+
+/**
+ * Parses an ISO-like timestamp `YYYY-MM-DD HH:MM[:SS[.fff]]` (T or space, optional Z / +08:00 / +0800).
+ * Returns milliseconds and whether a zone was given, or undefined when it is not a valid date and time.
+ */
+export function parseStamp(text: string): { ms: number; zoned: boolean } | undefined {
+  const m = STAMP.exec(text.trim());
+  if (!m) return undefined;
+  const [y, mo, d, h, mi, sec] = [1, 2, 3, 4, 5, 6].map((i) => Number(m[i] ?? 0));
+  const frac = m[7] ? Number(`0.${m[7]}`) * 1000 : 0;
+  if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59 || sec > 59) return undefined;
+  const base = Date.UTC(y, mo - 1, d, h, mi, sec);
+  if (new Date(base).getUTCDate() !== d) return undefined; // e.g. 2026-02-30
+  let ms = base + Math.floor(frac);
+  const zone = m[8];
+  if (zone && zone.toUpperCase() !== 'Z') {
+    const z = /^([+-])(\d{2}):?(\d{2})$/.exec(zone)!;
+    const off = Number(z[2]) * 60 + Number(z[3]);
+    if (Number(z[2]) > 14 || Number(z[3]) > 59) return undefined;
+    ms -= (z[1] === '-' ? -1 : 1) * off * 60_000;
+  }
+  return { ms, zoned: zone !== undefined };
+}
+
+/**
+ * For --time-order: every row needs a valid timestamp (all with a zone or all without, so they compare). Returns the
+ * rows with `time` set, stably sorted by time (equal times keep file order), ready for `applyRework`.
+ */
+export function timeOrder(rows: Link[]): Link[] {
+  let zoned: boolean | undefined;
+  let firstRow = 0;
+  const out = rows.map((l) => {
+    if (!l.timestamp) throw new InputError(`links row ${l.row}: no timestamp (--time-order needs one on every row).`);
+    const t = parseStamp(l.timestamp);
+    if (!t) {
+      throw new InputError(`links row ${l.row}: timestamp "${l.timestamp}" is not a date and time like 2026-11-10 08:01:00 (optional seconds, T, Z or +08:00).`);
+    }
+    if (zoned === undefined) {
+      zoned = t.zoned;
+      firstRow = l.row;
+    } else if (zoned !== t.zoned) {
+      throw new InputError(`links row ${l.row}: timestamp "${l.timestamp}" ${t.zoned ? 'has' : 'has no'} time zone, but row ${firstRow} ${zoned ? 'has one' : 'has none'}; use one style.`);
+    }
+    return { ...l, time: t.ms };
+  });
+  return out.map((l, i) => ({ l, i })).sort((a, b) => a.l.time! - b.l.time! || a.i - b.i).map((x) => x.l);
 }

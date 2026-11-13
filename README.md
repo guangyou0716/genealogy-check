@@ -44,8 +44,8 @@ Rework (optional): an `action` column with `add` (or empty) / `remove`. Rows are
 row takes out the latest still-present add of the same parent and child, so "remove old part, add new part" leaves
 only the replacement, and a part moved from one assembly to another is not double consumption. A remove row with
 nothing to remove is a finding. Removed links are left out of every other check and count; `trace` lists the
-assemblies a serial was removed from (they are not affected units). Export the file in the order things happened
-(timestamps are not used for ordering yet). See `examples/rework-links.csv`.
+assemblies a serial was removed from (they are not affected units). Export the file in the order things happened,
+or use `--time-order` below. See `examples/rework-links.csv`.
 
 ```csv
 parent,child,timestamp,station,action
@@ -54,7 +54,15 @@ PCB-1002,MCU-4002,2026-11-11 09:40:00,REWORK,remove
 PCB-1002,MCU-4006,2026-11-11 09:45:00,REWORK,add
 ```
 
-Column names are matched without case; `--parent-column`, `--child-column`, `--action-column`, `--serial-column` and `--part-column`
+Time order (optional, `--time-order`, for `check` and `trace`): every links row needs a timestamp
+(`YYYY-MM-DD HH:MM[:SS[.fff]]`, `T` or space, optional `Z` / `+08:00` / `+0800`; all rows with a zone or all
+without). Rows are then replayed by time (equal times keep file order) instead of file order, so an export sorted by
+serial still applies rework correctly. `check` also reports a **late component**: a part that went into a
+sub-assembly after that sub-assembly was already built into its assembly (for a repeated scan, the first time
+counts). That is either a scan/clock problem or rework inside an installed sub-assembly; worth a look either way.
+See `examples/time-order-links.csv` (`check examples/time-order-links.csv --time-order`).
+
+Column names are matched without case; `--parent-column`, `--child-column`, `--action-column`, `--time-column`, `--serial-column` and `--part-column`
 rename them. Row numbers in messages count CSV records with the header as row 1 (blank lines are skipped).
 
 ## Examples
@@ -148,8 +156,7 @@ npm run smoke   # built CLI: examples + a 300,000-link genealogy
 
 ## Not in scope (yet)
 
-Ordering rework rows by timestamp, time-order checks (a component linked before it was
-built), vendor export presets. Real export samples are needed before adding presets.
+Lot-level input (component lot instead of serial), vendor export presets. Real export samples are needed before adding presets.
 
 ## License
 

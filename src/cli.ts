@@ -15,7 +15,7 @@ Checks a serial-number assembly genealogy (which component serial went into whic
 from an MES or traceability system, and traces serials up (where used, down to the top-level unit) and down (what
 they contain). Offline; reads local files only.
 
-links.csv: header "parent,child" (optional timestamp, station columns are kept for later use). One row per
+links.csv: header "parent,child" (optional timestamp, station columns; timestamp is used by --time-order). One row per
 component built into an assembly; multi-level genealogies are just more rows (a sub-assembly is a child in one row
 and a parent in others). Rework: an optional "action" column, add (or empty) / remove. Rows are replayed in file
 order; a remove row takes out the latest add of the same parent,child, so remove old + add new = a replacement.
@@ -38,6 +38,8 @@ Options:
   --parent-column <name>    links parent column (default parent)
   --child-column <name>     links child column (default child)
   --action-column <name>    links rework column, add / remove (default action, optional)
+  --time-order              replay rows by timestamp; check also reports late components
+  --time-column <name>      links timestamp column (default timestamp)
   --serial-column <name>    units serial column (default serial)
   --part-column <name>      units part column (default part)
   --json                    JSON report (everything)
@@ -80,6 +82,8 @@ export function main(argv: string[]): number {
         'parent-column': { type: 'string' },
         'child-column': { type: 'string' },
         'action-column': { type: 'string' },
+        'time-column': { type: 'string' },
+        'time-order': { type: 'boolean' },
         'serial-column': { type: 'string' },
         'part-column': { type: 'string' },
         json: { type: 'boolean' },
@@ -102,7 +106,10 @@ export function main(argv: string[]): number {
       parentColumn: values['parent-column'],
       childColumn: values['child-column'],
       actionColumn: values['action-column'],
+      timeColumn: values['time-column'],
     });
+    if (values['time-column'] !== undefined && !values['time-order']) throw new InputError('--time-column needs --time-order.');
+    const options = { timeOrder: values['time-order'] === true };
     if ((values['serial-column'] !== undefined || values['part-column'] !== undefined) && values.units === undefined) {
       throw new InputError('--serial-column / --part-column need --units.');
     }
@@ -116,7 +123,7 @@ export function main(argv: string[]): number {
       if (values.serials !== undefined || values['max-depth'] !== undefined) throw new InputError('--serials / --max-depth are for trace.');
       if (values.bom !== undefined && units === undefined) throw new InputError('--bom needs --units (the part number of each serial).');
       const bom = values.bom === undefined ? undefined : parseBom(read(values.bom, 'bom'));
-      const report = check(links, units, bom);
+      const report = check(links, units, bom, options);
       const limit = int(values.limit, '--limit', 50, 1_000_000);
       process.stdout.write(
         values.json ? jsonReport(report) : values.md ? checkMd(report, limit) : values.csv ? checkCsv(report) : textReport(report, limit),
@@ -133,7 +140,7 @@ export function main(argv: string[]): number {
       }
     }
     if (!serials.length) throw new InputError('trace needs at least one serial (arguments or --serials).');
-    const report = trace(links, [...new Set(serials)], units, int(values['max-depth'], '--max-depth', 50, 1000));
+    const report = trace(links, [...new Set(serials)], units, int(values['max-depth'], '--max-depth', 50, 1000), options);
     const parts = new Map((units ?? []).map((u) => [u.serial, u.part]));
     const partOf = (serial: string) => parts.get(serial);
     process.stdout.write(
