@@ -1,0 +1,5 @@
+parent_part,child_part,qty
+METER-1P,PCBA-MAIN,1
+METER-1P,LCD-SEG,1
+METER-1P,RELAY-60A,1
+PCBA-MAIN,MCU-A,1
