@@ -100,6 +100,9 @@ export interface CheckReport {
     removedLinks: number;
     /** True with --time-order: rows replayed by timestamp and late components checked. */
     timeOrder: boolean;
+    /** Rows with a lot column value, and those of them with no child serial (left out of every serial check). */
+    lotRows: number;
+    lotOnlyRows: number;
   };
   findings: Finding[];
   counts: Record<string, number>;
@@ -183,6 +186,11 @@ export interface Options {
   timeOrder?: boolean;
 }
 
+export interface TraceOptions extends Options {
+  /** Component lots to trace (lot column): every serial carrying the lot, and every assembly a lot-only row puts it in. */
+  lots?: string[];
+}
+
 /** Active links where a component went into a sub-assembly later than that sub-assembly went into its assembly. */
 function lateComponents(rows: Link[]): Finding[] {
   // One link per parent,child: the first (earliest) row, since rows are in time order; repeats are duplicate-link.
@@ -216,7 +224,8 @@ function lateComponents(rows: Link[]): Finding[] {
   return out;
 }
 
-export function check(input: Link[], units?: Unit[], bom?: BomLine[], options: Options = {}): CheckReport {
+export function check(rows: Link[], units?: Unit[], bom?: BomLine[], options: Options = {}): CheckReport {
+  const input = rows.filter((l) => !l.lotOnly);
   const rework = applyRework(options.timeOrder ? timeOrder(input) : input);
   const links = rework.links;
   const g = buildGenealogy(links, units);
@@ -294,6 +303,8 @@ export function check(input: Link[], units?: Unit[], bom?: BomLine[], options: O
       removeRows: rework.removeRows,
       removedLinks: rework.removed.length,
       timeOrder: options.timeOrder === true,
+      lotRows: rows.filter((l) => l.lot !== undefined).length,
+      lotOnlyRows: rows.length - input.length,
     },
     findings,
     counts,
@@ -321,10 +332,21 @@ export interface TraceResult {
   removedFrom: RemovedLink[];
 }
 
+export interface LotResult {
+  lot: string;
+  /** Child serials whose rows carry this lot (file order, each once). */
+  serials: string[];
+  /** Assemblies that lot-only rows (lot, no child serial) say this lot went into. */
+  usedIn: string[];
+}
+
 export interface TraceReport {
   traces: TraceResult[];
   affectedTopLevel: string[];
   notFound: string[];
+  /** One entry per traced lot (--lot / --lots); empty when no lots were asked for. */
+  lots: LotResult[];
+  lotsNotFound: string[];
 }
 
 const MAX_PATHS = 100;
@@ -401,12 +423,31 @@ function downTree(g: Genealogy, serial: string, maxDepth: number): TreeNode {
   return root;
 }
 
-export function trace(input: Link[], serials: string[], units?: Unit[], maxDepth = 50, options: Options = {}): TraceReport {
+/** Resolves lots to the serials carrying them and the assemblies lot-only rows put them in (remove rows ignored). */
+export function lotsOf(rows: Link[], lots: string[]): LotResult[] {
+  const by = new Map<string, { serials: Set<string>; usedIn: Set<string> }>();
+  for (const lot of lots) by.set(lot, { serials: new Set(), usedIn: new Set() });
+  for (const l of rows) {
+    if (l.lot === undefined || l.action === 'remove') continue;
+    const hit = by.get(l.lot);
+    if (!hit) continue;
+    if (l.lotOnly) hit.usedIn.add(l.parent);
+    else hit.serials.add(l.child);
+  }
+  return [...by].map(([lot, h]) => ({ lot, serials: [...h.serials], usedIn: [...h.usedIn] }));
+}
+
+export function trace(rows: Link[], serials: string[], units?: Unit[], maxDepth = 50, options: TraceOptions = {}): TraceReport {
+  const input = rows.filter((l) => !l.lotOnly);
+  const lotParents = new Set(rows.filter((l) => l.lotOnly).map((l) => l.parent));
+  const lots = lotsOf(rows, [...new Set(options.lots ?? [])]);
+  const lotsNotFound = lots.filter((l) => !l.serials.length && !l.usedIn.length).map((l) => l.lot);
+  serials = [...new Set([...serials, ...lots.flatMap((l) => [...l.serials, ...l.usedIn])])];
   const rework = applyRework(options.timeOrder ? timeOrder(input) : input);
   const g = buildGenealogy(rework.links, units);
   const active = new Set(g.serials);
   // A serial that only shows up in removed links (e.g. a replaced, scrapped part) is found, but sits in no unit now.
-  const known = new Set(active);
+  const known = new Set([...active, ...lotParents]);
   const removedFrom = new Map<string, RemovedLink[]>();
   for (const r of rework.removed) {
     known.add(r.parent).add(r.child);
@@ -420,7 +461,10 @@ export function trace(input: Link[], serials: string[], units?: Unit[], maxDepth
   for (const serial of serials) {
     const found = known.has(serial);
     if (!found) notFound.push(serial);
-    const up = active.has(serial) ? upPaths(g, serial) : { paths: [], truncated: false, top: [] };
+    // An assembly seen only in lot-only rows has no serial links, so it is its own top-level unit.
+    const up = active.has(serial)
+      ? upPaths(g, serial)
+      : { paths: [], truncated: false, top: lotParents.has(serial) ? [serial] : [] };
     up.top.forEach((t) => affected.add(t));
     const result: TraceResult = {
       serial,
@@ -435,5 +479,5 @@ export function trace(input: Link[], serials: string[], units?: Unit[], maxDepth
     if (part !== undefined) result.part = part;
     traces.push(result);
   }
-  return { traces, affectedTopLevel: [...affected].sort(), notFound };
+  return { traces, affectedTopLevel: [...affected].sort(), notFound, lots, lotsNotFound };
 }

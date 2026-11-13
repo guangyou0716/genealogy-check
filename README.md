@@ -62,7 +62,28 @@ sub-assembly after that sub-assembly was already built into its assembly (for a 
 counts). That is either a scan/clock problem or rework inside an installed sub-assembly; worth a look either way.
 See `examples/time-order-links.csv` (`check examples/time-order-links.csv --time-order`).
 
-Column names are matched without case; `--parent-column`, `--child-column`, `--action-column`, `--time-column`, `--serial-column` and `--part-column`
+Lots (optional): a `lot` column with the component lot, reel or batch. On a row with a child serial it just tags
+that serial; a row with a lot and an **empty child** is a lot-tracked component with no serial of its own (capacitors,
+screws, a case lot). Lot-only rows stay out of every serial check (they are counted in the summary as `lotRows` /
+`lotOnlyRows`, and are not BOM-checked, so leave lot-tracked parts out of the BOM) and cannot be remove rows; with
+`--time-order` they need no timestamp. `trace --lot <lot>` (repeatable) or `--lots <file>` traces every serial
+carrying the lot and every assembly a lot-only row put it into; their top-level units are the affected set. An
+assembly seen only in lot-only rows is its own top-level unit. A lot with no rows is listed as not found (exit 1).
+
+```sh
+node dist/cli.js trace examples/lot-links.csv --lot REEL-A17 --lot CAP-LOT-0915
+```
+
+```text
+...
+Lots:
+  REEL-A17: serials MCU-6101, MCU-6102
+  CAP-LOT-0915: lot-only rows in PCB-5101, PCB-5103
+
+Affected top-level units (3): MTR-0101, MTR-0102, MTR-0103
+```
+
+Column names are matched without case; `--parent-column`, `--child-column`, `--action-column`, `--lot-column`, `--time-column`, `--serial-column` and `--part-column`
 rename them. Row numbers in messages count CSV records with the header as row 1 (blank lines are skipped).
 
 ## Examples
@@ -142,8 +163,8 @@ CSV cells that start with `=`, `+` or `@` get a leading `'` so a spreadsheet doe
 
 | code | meaning |
 | ---- | ------- |
-| 0 | no findings (`check`), every serial found (`trace`) |
-| 1 | findings (`check`), a serial not in the links file (`trace`) |
+| 0 | no findings (`check`), every serial and lot found (`trace`) |
+| 1 | findings (`check`), a serial or lot not in the links file (`trace`) |
 | 2 | input error (file, header, empty serial, bad BOM qty, conflicting part, flags) |
 
 ## Development
@@ -156,7 +177,7 @@ npm run smoke   # built CLI: examples + a 300,000-link genealogy
 
 ## Not in scope (yet)
 
-Lot-level input (component lot instead of serial), vendor export presets. Real export samples are needed before adding presets.
+Vendor export presets. Real export samples are needed before adding presets.
 
 ## License
 
