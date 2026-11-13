@@ -57,6 +57,31 @@ describe('cli check', () => {
   });
 });
 
+describe('cli output formats', () => {
+  it('check --csv lists every finding even with --limit', () => {
+    const r = run([...full, '--csv', '--limit', '1']);
+    expect(r.code).toBe(1);
+    expect(r.out.trim().split('\n')).toHaveLength(5);
+  });
+  it('check --md', () => {
+    const r = run([...full, '--md']);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('# Genealogy check');
+  });
+  it('trace --csv recall list and --md', () => {
+    const args = ['trace', ex('links.csv'), '--serials', ex('recall-serials.txt'), '--units', ex('units.csv')];
+    const c = run([...args, '--csv']);
+    expect(c.code).toBe(0);
+    expect(c.out).toBe('top_level,part,traced_serials\nMTR-0002,METER-1P,MCU-4002\nMTR-0003,METER-1P,MCU-4003\n');
+    expect(run([...args, '--md']).out).toContain('| MTR-0002 | METER-1P | MCU-4002 |');
+    expect(run(['trace', ex('links.csv'), 'NOPE', '--csv']).code).toBe(1);
+  });
+  it('only one output format', () => {
+    expect(run([...full, '--json', '--csv']).err).toContain('pick one of --json, --md, --csv');
+    expect(run(['trace', ex('links.csv'), 'A', '--md', '--csv']).code).toBe(2);
+  });
+});
+
 describe('cli trace', () => {
   it('recall list from a file: affected top-level units, exit 0', () => {
     const r = run(['trace', ex('links.csv'), '--serials', ex('recall-serials.txt'), '--units', ex('units.csv')]);

@@ -95,6 +95,27 @@ Affected top-level units (2): MTR-0002, MTR-0003
 (`--max-depth`, default 50). Routes up are capped at 100 per serial (double consumption can multiply them); the
 affected top-level set is always complete. `--json` gives the full report for both commands.
 
+## Output formats
+
+`--json` (everything), `--md` (Markdown tables for a ticket or wiki page) or `--csv`, one at a time:
+
+- `check --csv`: one row per finding, every finding (`--limit` only trims text and Markdown), columns
+  `type,serial,parent,parent_part,child_part,expected,actual,serials,rows,detail`; lists inside a cell are space
+  separated.
+- `trace --csv`: the recall list, one row per affected top-level unit with the traced serials inside it:
+
+```sh
+node dist/cli.js trace examples/links.csv --serials examples/recall-serials.txt --units examples/units.csv --csv
+```
+
+```text
+top_level,part,traced_serials
+MTR-0002,METER-1P,MCU-4002
+MTR-0003,METER-1P,MCU-4003
+```
+
+CSV cells that start with `=`, `+` or `@` get a leading `'` so a spreadsheet does not run them as formulas.
+
 ## Exit codes
 
 | code | meaning |

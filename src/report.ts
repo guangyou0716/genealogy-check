@@ -23,7 +23,7 @@ export function describe(f: Finding): string {
   }
 }
 
-const ORDER: Finding['type'][] = [
+export const ORDER: Finding['type'][] = [
   'multi-parent',
   'cycle',
   'self-link',
@@ -34,7 +34,7 @@ const ORDER: Finding['type'][] = [
   'duplicate-link',
 ];
 
-const TITLE: Record<Finding['type'], string> = {
+export const TITLE: Record<Finding['type'], string> = {
   'multi-parent': 'Built into more than one assembly (double consumption)',
   cycle: 'Cycles',
   'self-link': 'Linked into itself',
